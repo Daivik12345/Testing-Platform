@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import { scoreAttempt } from './scoring.js';
+import React, { useState, useEffect, useRef, lazy, Suspense } from 'react';
 import { initializeApp } from 'firebase/app';
 import {
   getAuth,
@@ -12,29 +13,16 @@ import {
   onSnapshot,
   addDoc,
   doc,
-  deleteDoc
+  deleteDoc,
+  setDoc
 } from 'firebase/firestore';
-import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  Legend,
-  ResponsiveContainer,
-  LineChart,
-  Line
-} from 'recharts';
 import {
   LogOut,
   Play,
   PlusCircle,
   Activity,
   BookOpen,
-  CheckCircle,
   XCircle,
-  MinusCircle,
   Clock,
   Trash2,
   ChevronRight,
@@ -42,6 +30,9 @@ import {
   LayoutDashboard,
   Target
 } from 'lucide-react';
+
+const AdminAnalytics = lazy(() => import('./Analytics.jsx').then(m => ({default:m.AdminAnalytics})));
+const StudentAnalytics = lazy(() => import('./Analytics.jsx').then(m => ({default:m.StudentAnalytics})));
 
 // --- FIREBASE INITIALIZATION ---
 const firebaseConfig = {
@@ -54,14 +45,26 @@ const firebaseConfig = {
   measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID
 };
 
-const app = initializeApp(firebaseConfig);
-const auth = getAuth(app);
-const db = getFirestore(app);
+let auth, db, startupError;
+try {
+  const missing = ['apiKey', 'authDomain', 'projectId', 'appId'].filter(key => !firebaseConfig[key]);
+  if (missing.length) throw new Error(`Missing Firebase settings: ${missing.join(', ')}. Update Vercel environment variables and redeploy.`);
+  const app = initializeApp(firebaseConfig);
+  auth = getAuth(app);
+  db = getFirestore(app);
+} catch (error) { startupError = error.message; }
 const appId = 'neet-cbt-portal';
+function withTimeout(promise, ms) {
+  let timer;
+  return Promise.race([promise, new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error('Saving timed out. Retry when connected; the same attempt ID prevents duplicate records.')), ms);
+  })]).finally(() => clearTimeout(timer));
+}
 
 // --- MAIN APP COMPONENT ---
 export default function App() {
   const [firebaseUser, setFirebaseUser] = useState(null);
+  const [error, setError] = useState(startupError || '');
   const [currentUser, setCurrentUser] = useState(null);
   const [view, setView] = useState('login');
 
@@ -71,6 +74,7 @@ export default function App() {
 
   // Initialize Firebase Auth
   useEffect(() => {
+    if (!auth) return;
     const initAuth = async () => {
       try {
         if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
@@ -79,7 +83,7 @@ export default function App() {
           await signInAnonymously(auth);
         }
       } catch (err) {
-        console.error("Auth error:", err);
+        setError(`Sign-in failed (${err.code || err.message}). Check Anonymous sign-in and account creation in Firebase Authentication.`);
       }
     };
     initAuth();
@@ -97,12 +101,12 @@ export default function App() {
     const unsubTests = onSnapshot(testsRef, (snapshot) => {
       const testsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setTests(testsData.sort((a, b) => b.createdAt - a.createdAt));
-    }, (err) => console.error("Error fetching tests:", err));
+    }, (err) => setError(`Cannot load tests: ${err.message}. Check Firestore setup and access rules.`));
 
     const unsubAttempts = onSnapshot(attemptsRef, (snapshot) => {
       const attemptsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setAttempts(attemptsData.sort((a, b) => b.submittedAt - a.submittedAt));
-    }, (err) => console.error("Error fetching attempts:", err));
+    }, (err) => setError(`Cannot load attempts: ${err.message}. Check Firestore setup and access rules.`));
 
     return () => {
       unsubTests();
@@ -122,34 +126,38 @@ export default function App() {
   };
 
   const startTest = (test) => {
+    if (!confirm(`${test.name} — ${test.duration} minutes, ${test.totalQuestions} questions. Scoring: +4 correct, −1 incorrect, 0 skipped. Answers save on this device. The timer continues if you leave or reload. Existing drafts resume automatically. Ready to begin?`)) return;
     setActiveTest(test);
     setView('test-env');
   };
 
   const finishTest = async (testId, resultData) => {
-    if (!firebaseUser) return;
+    if (!firebaseUser) throw new Error("You are not connected. Reload and sign in again.");
     try {
       const attemptsRef = collection(db, 'artifacts', appId, 'public', 'data', 'attempts');
-      await addDoc(attemptsRef, {
+      if (!navigator.onLine) throw new Error('You are offline');
+      await withTimeout(setDoc(doc(attemptsRef, resultData.attemptId), {
         testId,
         testName: activeTest.name,
         studentName: currentUser.name,
+        userId: firebaseUser.uid,
         submittedAt: Date.now(),
         ...resultData
-      });
+      }), 15000);
       setView('student-dash');
       setActiveTest(null);
     } catch (err) {
-      console.error("Error saving attempt:", err);
+      throw new Error(`Unable to save attempt: ${err.message}. Your answers remain on this device; retry when connected.`);
     }
   };
 
+  if (!firebaseUser && error) return <div className="startup"><div className="surface"><Activity size={32}/><h1>Let’s get you connected.</h1><p role="alert">{error}</p><button onClick={() => location.reload()}>Try again</button></div></div>;
   if (!firebaseUser) {
     return (
       <div className="flex h-screen items-center justify-center bg-slate-900 text-white">
         <div className="flex flex-col items-center gap-4 animate-pulse">
           <Activity size={48} className="text-indigo-400" />
-          <h2 className="text-xl font-medium tracking-widest">INITIALIZING SECURE ENVIRONMENT</h2>
+          <h2 className="text-xl font-medium tracking-widest">Connecting to your workspace…</h2>
         </div>
       </div>
     );
@@ -157,9 +165,10 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 font-sans selection:bg-indigo-500/30 selection:text-indigo-900">
+      {error && <div role="alert" className="error-banner">{error}<button onClick={() => setError('')}>Dismiss</button></div>}
       {view === 'login' && <LoginScreen onLogin={handleLogin} />}
       {view === 'admin-dash' && <AdminDashboard tests={tests} attempts={attempts} onLogout={handleLogout} />}
-      {view === 'student-dash' && <StudentDashboard tests={tests} attempts={attempts} currentUser={currentUser} onLogout={handleLogout} onStartTest={startTest} />}
+      {view === 'student-dash' && <StudentDashboard tests={tests} attempts={attempts.filter(a => a.studentName === currentUser?.name)} currentUser={currentUser} onLogout={handleLogout} onStartTest={startTest} />}
       {view === 'test-env' && <TestEnvironment test={activeTest} onFinish={finishTest} onCancel={() => setView('student-dash')} currentUser={currentUser} />}
     </div>
   );
@@ -194,7 +203,7 @@ function LoginScreen({ onLogin }) {
             <Sparkles className="text-white w-10 h-10" />
           </div>
           <h1 className="text-3xl font-extrabold text-white tracking-tight mb-2">NEET CBT Portal</h1>
-          <p className="text-sm text-indigo-200/80 font-medium tracking-wide uppercase">Secure Testing Environment</p>
+          <p className="text-sm text-indigo-200/80 font-medium tracking-wide uppercase">A little focus. A lot of progress.</p>
         </div>
         <form onSubmit={handleSubmit} className="space-y-6">
           <div className="space-y-2">
@@ -245,7 +254,7 @@ function AdminDashboard({ tests, attempts, onLogout }) {
       <header className="flex items-center justify-between bg-white/80 backdrop-blur-xl px-8 py-5 shadow-sm border-b border-slate-200/60 sticky top-0 z-20">
         <h1 className="text-2xl font-extrabold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent flex items-center gap-3">
           <div className="p-2 bg-indigo-50 rounded-xl"><LayoutDashboard className="text-indigo-600 w-6 h-6" /></div>
-          Admin Command Center
+          Your learning workspace
         </h1>
         <div className="flex items-center gap-6">
           <div className="flex flex-col items-end">
@@ -284,7 +293,7 @@ function AdminDashboard({ tests, attempts, onLogout }) {
 
         <main className="flex-1 overflow-y-auto p-10 bg-slate-50/50">
           <div className="max-w-6xl mx-auto">
-            {activeTab === 'analytics' && <AdminAnalytics attempts={attempts} />}
+            {activeTab === 'analytics' && <><Suspense fallback={<p>Loading analytics…</p>}><AdminAnalytics attempts={attempts} /></Suspense><AttemptHistory attempts={attempts} /></>}
             {activeTab === 'create-test' && <CreateTestForm onSuccess={() => setActiveTab('manage-tests')} />}
             {activeTab === 'manage-tests' && <ManageTests tests={tests} attempts={attempts} />}
           </div>
@@ -294,81 +303,12 @@ function AdminDashboard({ tests, attempts, onLogout }) {
   );
 }
 
-function AdminAnalytics({ attempts }) {
-  const chartData = useMemo(() => {
-    return attempts.map((a, i) => ({
-      name: `Mock ${i+1}`,
-      score: a.totalScore,
-      accuracy: Math.round((a.correct / (a.correct + a.incorrect)) * 100) || 0
-    }));
-  }, [attempts]);
-
-  const avgScore = attempts.length ? (attempts.reduce((acc, curr) => acc + curr.totalScore, 0) / attempts.length).toFixed(1) : 0;
-  const highestScore = attempts.length ? Math.max(...attempts.map(a => a.totalScore)) : 0;
-
-  return (
-    <div className="space-y-8">
-      <div className="flex items-center justify-between">
-        <h2 className="text-3xl font-extrabold text-slate-800 tracking-tight">Performance Overview</h2>
-        <span className="bg-indigo-100 text-indigo-700 font-bold px-4 py-1 rounded-full text-sm">Target: NEET 2027</span>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        {[
-          { label: 'Total Attempts', value: attempts.length, icon: BookOpen, color: 'blue' },
-          { label: 'Average Score', value: avgScore, icon: Activity, color: 'indigo' },
-          { label: 'Highest Score', value: highestScore, icon: Target, color: 'emerald' }
-        ].map((stat, idx) => (
-          <div key={idx} className="bg-white p-8 rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-slate-100 flex items-center gap-6 transition-transform hover:-translate-y-1">
-            <div className={`p-4 bg-${stat.color}-50 text-${stat.color}-600 rounded-2xl shadow-inner`}>
-              <stat.icon size={32}/>
-            </div>
-            <div>
-              <p className="text-sm text-slate-500 font-bold uppercase tracking-wider mb-1">{stat.label}</p>
-              <p className="text-4xl font-black text-slate-800">{stat.value}</p>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {attempts.length > 0 ? (
-        <div className="bg-white p-8 rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-slate-100">
-          <h3 className="text-xl font-bold text-slate-800 mb-8">Score Progression Timeline</h3>
-          <div className="h-96 w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={chartData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                <XAxis dataKey="name" stroke="#94a3b8" fontSize={13} tickLine={false} axisLine={false} dy={10} />
-                <YAxis yAxisId="left" stroke="#94a3b8" fontSize={13} tickLine={false} axisLine={false} dx={-10} />
-                <YAxis yAxisId="right" orientation="right" stroke="#94a3b8" fontSize={13} tickLine={false} axisLine={false} dx={10} />
-                <Tooltip
-                  contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 40px -10px rgba(0,0,0,0.1)', padding: '12px 20px', fontWeight: 'bold' }}
-                  cursor={{stroke: '#e2e8f0', strokeWidth: 2, strokeDasharray: '5 5'}}
-                />
-                <Legend wrapperStyle={{ paddingTop: '20px', fontWeight: 'bold', color: '#475569' }} />
-                <Line yAxisId="left" type="monotone" dataKey="score" stroke="#4f46e5" strokeWidth={4} dot={{ r: 6, strokeWidth: 3, fill: '#fff' }} activeDot={{ r: 8 }} name="Total Score" />
-                <Line yAxisId="right" type="monotone" dataKey="accuracy" stroke="#10b981" strokeWidth={4} dot={{ r: 6, strokeWidth: 3, fill: '#fff' }} activeDot={{ r: 8 }} name="Accuracy (%)" />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-      ) : (
-        <div className="flex flex-col items-center justify-center p-20 bg-white/50 rounded-3xl border border-dashed border-slate-300">
-          <div className="p-6 bg-slate-100 rounded-full mb-4"><Activity size={48} className="text-slate-400" /></div>
-          <p className="text-lg font-bold text-slate-500">No test attempts recorded yet.</p>
-          <p className="text-sm text-slate-400 mt-2">Publish a test and have the candidate attempt it to see analytics.</p>
-        </div>
-      )}
-    </div>
-  );
-}
-
 function CreateTestForm({ onSuccess }) {
   const [name, setName] = useState('');
   const [duration, setDuration] = useState(200);
   const [pdfUrl, setPdfUrl] = useState('');
   const [totalQs, setTotalQs] = useState(200);
-  const [answerKey, setAnswerKey] = useState({});
+  const [answerKey, setAnswerKey] = useState(() => Object.fromEntries(Array.from({length:200},(_,i)=>[i+1,'A'])));
   const [loading, setLoading] = useState(false);
 
   const generateEmptyKey = (count) => {
@@ -377,10 +317,6 @@ function CreateTestForm({ onSuccess }) {
     return key;
   };
 
-  useEffect(() => {
-    setAnswerKey(generateEmptyKey(totalQs));
-  }, [totalQs]);
-
   const handleKeyChange = (qNum, val) => {
     setAnswerKey(prev => ({ ...prev, [qNum]: val }));
   };
@@ -388,16 +324,18 @@ function CreateTestForm({ onSuccess }) {
   const handleBulkUpload = (e) => {
     try {
       const json = JSON.parse(e.target.value);
-      if (typeof json === 'object') {
+      if (json && !Array.isArray(json) && Object.entries(json).every(([k,v]) => Number.isInteger(Number(k)) && Number(k) >= 1 && Number(k) <= totalQs && ['A','B','C','D'].includes(v))) {
         setAnswerKey(prev => ({...prev, ...json}));
       }
-    } catch(err) {
-      // Ignore valid JSON while typing
+    } catch {
+      // Ignore incomplete JSON while typing
     }
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (!name.trim() || !Number.isInteger(Number(totalQs)) || totalQs < 1 || totalQs > 300 || duration < 1 || duration > 360) { alert('Use a title, 1–300 questions, and a duration of 1–360 minutes.'); return; }
+    if (pdfUrl && !/^https:\/\//i.test(pdfUrl)) { alert('Use an HTTPS link for the question paper.'); return; }
     setLoading(true);
     try {
       const testsRef = collection(db, 'artifacts', appId, 'public', 'data', 'tests');
@@ -412,7 +350,7 @@ function CreateTestForm({ onSuccess }) {
       onSuccess();
     } catch (err) {
       console.error(err);
-      alert('Failed to create test.');
+      alert(`Failed to create test: ${err.message}`);
     }
     setLoading(false);
   };
@@ -440,7 +378,7 @@ function CreateTestForm({ onSuccess }) {
           </div>
           <div className="space-y-2">
             <label className="block text-sm font-bold text-slate-700 ml-1">Total Questions</label>
-            <input type="number" max="200" required value={totalQs} onChange={e=>setTotalQs(Number(e.target.value))} className="block w-full rounded-2xl border border-slate-200 bg-slate-50 px-5 py-4 font-medium text-slate-800 placeholder-slate-400 focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all" />
+            <input type="number" min="1" max="300" required value={totalQs} onChange={e=>{const count=Math.min(300,Math.max(1,Number(e.target.value)||1));setTotalQs(count);setAnswerKey(prev=>Object.fromEntries(Object.keys(generateEmptyKey(count)).map(k=>[k,prev[k] || 'A'])));}} className="block w-full rounded-2xl border border-slate-200 bg-slate-50 px-5 py-4 font-medium text-slate-800 placeholder-slate-400 focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all" />
           </div>
         </div>
 
@@ -487,10 +425,11 @@ function CreateTestForm({ onSuccess }) {
 
 function ManageTests({ tests, attempts }) {
   const handleDelete = async (testId) => {
+    if (!confirm('Delete this test? Past attempts will be preserved.')) return;
     try {
       await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tests', testId));
     } catch(err) {
-      console.error(err);
+      alert(`Unable to delete test: ${err.message}`);
     }
   };
 
@@ -574,7 +513,7 @@ function StudentDashboard({ tests, attempts, currentUser, onLogout, onStartTest 
 
       <main className="flex-1 overflow-y-auto p-10">
         {activeTab === 'tests' && <StudentTestList tests={tests} onStartTest={onStartTest} />}
-        {activeTab === 'results' && <StudentAnalytics attempts={attempts} />}
+        {activeTab === 'results' && <><Suspense fallback={<p>Loading analytics…</p>}><StudentAnalytics attempts={attempts} /></Suspense><AttemptHistory attempts={attempts} /></>}
       </main>
     </div>
   );
@@ -627,121 +566,47 @@ function StudentTestList({ tests, onStartTest }) {
   );
 }
 
-function StudentAnalytics({ attempts }) {
-  const chartData = useMemo(() => {
-    return attempts.map((a, i) => ({
-      name: `Mock ${i+1}`,
-      score: a.totalScore,
-      maxScore: a.totalQs * 4
-    }));
-  }, [attempts]);
-
-  return (
-    <div className="max-w-6xl mx-auto space-y-10">
-      {attempts.length === 0 ? (
-        <div className="flex flex-col items-center justify-center p-20 bg-white/50 rounded-3xl border border-dashed border-slate-300 text-slate-500">
-          <Activity size={48} className="mb-4 text-slate-300" />
-          <p className="text-lg font-bold">You haven't completed any tests yet.</p>
-        </div>
-      ) : (
-        <>
-          <div className="bg-white p-8 rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-slate-100">
-             <div className="flex items-center gap-3 mb-8">
-               <div className="p-3 bg-indigo-50 rounded-xl text-indigo-600"><Activity size={24} /></div>
-               <h3 className="text-2xl font-extrabold text-slate-800">Score Tracker</h3>
-             </div>
-             <div className="h-80 w-full">
-               <ResponsiveContainer width="100%" height="100%">
-                 <BarChart data={chartData} margin={{top: 20, right: 30, left: 0, bottom: 0}}>
-                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                   <XAxis dataKey="name" stroke="#94a3b8" fontSize={13} tickLine={false} axisLine={false} dy={10} />
-                   <YAxis stroke="#94a3b8" fontSize={13} tickLine={false} axisLine={false} />
-                   <Tooltip
-                     cursor={{fill: '#f8fafc'}}
-                     contentStyle={{borderRadius: '16px', border: 'none', boxShadow: '0 10px 40px -10px rgba(0,0,0,0.1)', padding: '12px 20px', fontWeight: 'bold'}}
-                   />
-                   <Legend wrapperStyle={{ paddingTop: '20px', fontWeight: 'bold', color: '#475569' }} />
-                   <Bar dataKey="score" fill="url(#colorScore)" name="Marks Obtained" radius={[8,8,0,0]} barSize={40} />
-                   <defs>
-                     <linearGradient id="colorScore" x1="0" y1="0" x2="0" y2="1">
-                       <stop offset="0%" stopColor="#6366f1" stopOpacity={1}/>
-                       <stop offset="100%" stopColor="#4f46e5" stopOpacity={0.8}/>
-                     </linearGradient>
-                   </defs>
-                 </BarChart>
-               </ResponsiveContainer>
-             </div>
-          </div>
-
-          <div className="space-y-6">
-            <h3 className="text-2xl font-extrabold text-slate-800 px-2">Detailed History</h3>
-            {attempts.map((a, i) => (
-              <div key={a.id} className="bg-white p-8 rounded-3xl border border-slate-100 shadow-[0_4px_20px_rgb(0,0,0,0.03)] grid grid-cols-1 md:grid-cols-5 gap-6 items-center hover:border-indigo-100 transition-colors group">
-                <div className="md:col-span-2">
-                  <div className="text-xs font-black text-slate-400 uppercase tracking-widest mb-1">{new Date(a.submittedAt).toLocaleDateString(undefined, { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' })}</div>
-                  <h4 className="font-extrabold text-xl text-slate-800 group-hover:text-indigo-600 transition-colors">{a.testName}</h4>
-                </div>
-
-                <div className="flex items-center gap-3 justify-start md:justify-center col-span-2">
-                   <div className="bg-emerald-50 border border-emerald-100 px-4 py-2 rounded-xl flex items-center gap-2 shadow-sm">
-                     <CheckCircle size={18} className="text-emerald-500"/>
-                     <span className="font-extrabold text-emerald-700">{a.correct}</span>
-                   </div>
-                   <div className="bg-rose-50 border border-rose-100 px-4 py-2 rounded-xl flex items-center gap-2 shadow-sm">
-                     <XCircle size={18} className="text-rose-500"/>
-                     <span className="font-extrabold text-rose-700">{a.incorrect}</span>
-                   </div>
-                   <div className="bg-slate-100 border border-slate-200 px-4 py-2 rounded-xl flex items-center gap-2 shadow-sm">
-                     <MinusCircle size={18} className="text-slate-500"/>
-                     <span className="font-extrabold text-slate-700">{a.unattempted}</span>
-                   </div>
-                </div>
-
-                <div className="text-left md:text-right border-t md:border-t-0 md:border-l border-slate-100 pt-4 md:pt-0 md:pl-6">
-                  <span className="block text-4xl font-black text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-indigo-600">
-                    {a.totalScore}
-                  </span>
-                  <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Out of {a.totalQs * 4}</span>
-                </div>
-              </div>
-            ))}
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
-
-
 // --- NTA TEST ENVIRONMENT ---
 function TestEnvironment({ test, onFinish, onCancel, currentUser }) {
-  const [currentQ, setCurrentQ] = useState(1);
-  const [responses, setResponses] = useState({});
-  const [statuses, setStatuses] = useState({});
-  const [timeLeft, setTimeLeft] = useState(test.duration * 60);
+  const draftKey = `neet-draft:${currentUser.name}:${test.id}`;
+  const [draft] = useState(() => { try { return JSON.parse(localStorage.getItem(draftKey)) || {}; } catch { return {}; } });
+  const [currentQ, setCurrentQ] = useState(draft.currentQ || 1);
+  const [responses, setResponses] = useState(draft.responses || {});
+  const [statuses, setStatuses] = useState(draft.statuses || Object.fromEntries(Array.from({length:test.totalQuestions}, (_,i) => [i+1,i ? 'not-visited':'not-answered'])));
+  const [deadline] = useState(() => draft.deadline || Date.now() + test.duration * 60000);
+  const [attemptId] = useState(() => draft.attemptId || crypto.randomUUID());
+  const [timeLeft, setTimeLeft] = useState(() => Math.max(0, Math.ceil((deadline-Date.now())/1000)));
   const [showSubmitModal, setShowSubmitModal] = useState(false);
-
+  const [submitError, setSubmitError] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [saveStatus, setSaveStatus] = useState('Saved on this device');
+  const [fullscreen, setFullscreen] = useState(!!document.fullscreenElement);
+  const [focusExits, setFocusExits] = useState(draft.focusExits || 0);
+  const busy = useRef(false);
+  const autoSubmitted = useRef(false);
+  const submitRef = useRef(null);
+  // Storage synchronization reports quota and browser privacy failures to the candidate.
+  /* eslint-disable react/set-state-in-effect */
   useEffect(() => {
-    const initialStats = {};
-    for (let i = 1; i <= test.totalQuestions; i++) {
-      initialStats[i] = i === 1 ? 'not-answered' : 'not-visited';
-    }
-    setStatuses(initialStats);
-  }, [test.totalQuestions]);
-
+    try { localStorage.setItem(draftKey, JSON.stringify({currentQ,responses,statuses,deadline,attemptId,focusExits})); setSaveStatus('Saved on this device'); }
+    catch { setSaveStatus('Local saving unavailable. Keep this tab open.'); }
+  }, [draftKey,currentQ,responses,statuses,deadline,attemptId,focusExits]);
+  /* eslint-enable react/set-state-in-effect */
   useEffect(() => {
-    const timer = setInterval(() => {
-      setTimeLeft(prev => {
-        if (prev <= 1) {
-          clearInterval(timer);
-          processSubmission();
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-    return () => clearInterval(timer);
-  }, []);
+    const tick = () => setTimeLeft(Math.max(0,Math.ceil((deadline-Date.now())/1000)));
+    const timer = setInterval(tick, 500);
+    const warn = e => { e.preventDefault(); e.returnValue = ''; };
+    const change = () => setFullscreen(!!document.fullscreenElement);
+    const visibility = () => { if(document.hidden) setFocusExits(n=>n+1); tick(); };
+    window.addEventListener('beforeunload',warn);
+    document.addEventListener('fullscreenchange',change);
+    document.addEventListener('visibilitychange',visibility);
+    return () => { clearInterval(timer); window.removeEventListener('beforeunload',warn); document.removeEventListener('fullscreenchange',change); document.removeEventListener('visibilitychange',visibility); };
+  }, [deadline]);
+  const toggleFullscreen = async () => {
+    try { if(document.fullscreenElement) await document.exitFullscreen(); else await document.documentElement.requestFullscreen(); }
+    catch { setSubmitError('Fullscreen is unavailable in this browser. You can continue in this window.'); }
+  };
 
   const formatTime = (seconds) => {
     const h = Math.floor(seconds / 3600).toString().padStart(2, '0');
@@ -763,7 +628,9 @@ function TestEnvironment({ test, onFinish, onCancel, currentUser }) {
   };
 
   const handleOptionSelect = (opt) => {
+    if (!timeLeft || busy.current) return;
     setResponses(prev => ({ ...prev, [currentQ]: opt }));
+    setStatuses(prev => ({...prev, [currentQ]: prev[currentQ]?.includes('marked') ? 'marked-answered' : 'answered'}));
   };
 
   const handleSaveNext = () => {
@@ -773,6 +640,7 @@ function TestEnvironment({ test, onFinish, onCancel, currentUser }) {
   };
 
   const handleClear = () => {
+    if (!timeLeft || busy.current) return;
     setResponses(prev => {
       const next = { ...prev };
       delete next[currentQ];
@@ -792,21 +660,23 @@ function TestEnvironment({ test, onFinish, onCancel, currentUser }) {
     if (currentQ < test.totalQuestions) navigateTo(currentQ + 1);
   };
 
-  const processSubmission = () => {
-    let correct = 0, incorrect = 0, unattempted = 0;
-    for (let i = 1; i <= test.totalQuestions; i++) {
-      const userAns = responses[i];
-      const actualAns = test.answerKey[i];
-      if (!userAns) unattempted++;
-      else if (userAns === actualAns) correct++;
-      else incorrect++;
-    }
-    const totalScore = (correct * 4) + (incorrect * -1);
-    onFinish(test.id, {
-      totalQs: test.totalQuestions,
-      correct, incorrect, unattempted, totalScore, responses
-    });
+  const processSubmission = async () => {
+    if (busy.current) return;
+    busy.current = true; setSaving(true); setSubmitError('');
+    try {
+      const result = scoreAttempt(test, responses);
+      await onFinish(test.id, {...result, attemptId, responses, answerKey: test.answerKey, focusExits,
+        elapsedSeconds: Math.min(test.duration*60, Math.max(0, Math.round((Date.now()-(deadline-test.duration*60000))/1000)))});
+      try { localStorage.removeItem(draftKey); } catch { /* Storage may be disabled. */ }
+      if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+    } catch(error) { setSubmitError(error.message); setShowSubmitModal(false); }
+    finally { busy.current = false; setSaving(false); }
   };
+  useEffect(() => { submitRef.current = processSubmission; });
+  useEffect(() => {
+    if (timeLeft === 0 && !autoSubmitted.current) { autoSubmitted.current = true; submitRef.current?.(); }
+  }, [timeLeft]);
+
 
   const getStatusColor = (status) => {
     switch(status) {
@@ -827,11 +697,14 @@ function TestEnvironment({ test, onFinish, onCancel, currentUser }) {
   const summary = getSummary();
 
   return (
-    <div className="flex h-screen flex-col bg-slate-100 overflow-hidden select-none font-sans">
+    <div className="exam-shell flex h-screen flex-col bg-slate-100 overflow-hidden select-none font-sans">
+      <div className="exam-toolbar"><span>{saveStatus} · {focusExits} tab switches</span><div><button onClick={() => { if(confirm('Return to dashboard? Your draft is saved, but the timer will continue.')) onCancel(); }}>Save & leave</button><button onClick={toggleFullscreen}>{fullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}</button></div></div>
+      {submitError && <div role="alert" className="error-banner">{submitError}<button disabled={saving} onClick={processSubmission}>Retry submission</button></div>}
+      {timeLeft === 0 && <div className="error-banner">Time is up. Answers are locked. {saving ? 'Saving your result…' : 'Use Retry submission if saving failed.'}</div>}
       {/* NTA Premium Header */}
       <header className="flex items-center justify-between bg-slate-900 text-white px-6 py-4 shadow-lg z-10">
         <div className="flex items-center gap-6">
-          <div className="font-black text-2xl tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-indigo-400">NTA CBT</div>
+          <div className="font-black text-2xl tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-indigo-400">FOCUS / CBT</div>
           <div className="h-6 w-px bg-slate-700"></div>
           <div className="font-bold text-slate-300">{test.name}</div>
         </div>
@@ -858,7 +731,7 @@ function TestEnvironment({ test, onFinish, onCancel, currentUser }) {
           </div>
           <div className="flex-1 overflow-y-auto bg-slate-100/50 p-4">
             {test.pdfUrl ? (
-               <iframe src={`${test.pdfUrl}#toolbar=0&navpanes=0`} className="w-full h-full rounded-2xl bg-white shadow-sm border border-slate-200" title="Question Paper"></iframe>
+               <iframe sandbox="allow-scripts allow-same-origin" referrerPolicy="no-referrer" src={`${test.pdfUrl}#toolbar=0&navpanes=0`} className="w-full h-full rounded-2xl bg-white shadow-sm border border-slate-200" title="Question Paper"></iframe>
             ) : (
                <div className="w-full h-full border-2 border-dashed border-slate-300 bg-white flex flex-col items-center justify-center text-slate-500 p-10 text-center rounded-2xl">
                   <div className="p-6 bg-slate-50 rounded-full mb-6"><BookOpen size={48} className="text-slate-300" /></div>
@@ -916,7 +789,7 @@ function TestEnvironment({ test, onFinish, onCancel, currentUser }) {
                <div className="flex gap-4 justify-center">
                  {['A', 'B', 'C', 'D'].map(opt => (
                    <label key={opt} className={`flex items-center justify-center w-14 h-14 rounded-full border-2 cursor-pointer transition-all duration-200 shadow-sm ${responses[currentQ] === opt ? 'border-indigo-600 bg-indigo-600 text-white font-black scale-110 shadow-[0_8px_20px_rgba(79,70,229,0.4)]' : 'border-slate-200 text-slate-600 font-bold hover:border-indigo-300 hover:bg-indigo-50'}`}>
-                     <input type="radio" name="omr-opt" value={opt} checked={responses[currentQ] === opt} onChange={() => handleOptionSelect(opt)} className="hidden" />
+                     <input type="radio" name="omr-opt" value={opt} checked={responses[currentQ] === opt} onChange={() => handleOptionSelect(opt)} className="sr-only" />
                      {opt}
                    </label>
                  ))}
@@ -945,15 +818,15 @@ function TestEnvironment({ test, onFinish, onCancel, currentUser }) {
               <p className="text-slate-600 text-center mb-8 font-medium">You are about to submit your assessment. <strong className="text-slate-800">No further changes can be made.</strong></p>
 
               <div className="grid grid-cols-2 gap-4 mb-8">
-                <div className="bg-emerald-50 p-4 rounded-2xl text-center border border-emerald-100"><div className="text-3xl font-black text-emerald-600 mb-1">{summary.answered}</div><div className="text-[10px] font-black text-emerald-700 uppercase tracking-widest">Answered</div></div>
-                <div className="bg-rose-50 p-4 rounded-2xl text-center border border-rose-100"><div className="text-3xl font-black text-rose-600 mb-1">{summary['not-answered'] + summary['not-visited']}</div><div className="text-[10px] font-black text-rose-700 uppercase tracking-widest">Unanswered</div></div>
+                <div className="bg-emerald-50 p-4 rounded-2xl text-center border border-emerald-100"><div className="text-3xl font-black text-emerald-600 mb-1">{Object.keys(responses).length}</div><div className="text-[10px] font-black text-emerald-700 uppercase tracking-widest">Answered</div></div>
+                <div className="bg-rose-50 p-4 rounded-2xl text-center border border-rose-100"><div className="text-3xl font-black text-rose-600 mb-1">{test.totalQuestions - Object.keys(responses).length}</div><div className="text-[10px] font-black text-rose-700 uppercase tracking-widest">Unanswered</div></div>
                 <div className="bg-violet-50 p-4 rounded-2xl text-center border border-violet-100"><div className="text-3xl font-black text-violet-600 mb-1">{summary.marked}</div><div className="text-[10px] font-black text-violet-700 uppercase tracking-widest">Marked</div></div>
                 <div className="bg-blue-50 p-4 rounded-2xl text-center border border-blue-100"><div className="text-3xl font-black text-blue-600 mb-1">{summary['marked-answered']}</div><div className="text-[10px] font-black text-blue-700 uppercase tracking-widest">Marked + Ans</div></div>
               </div>
 
               <div className="flex gap-4">
                 <button onClick={() => setShowSubmitModal(false)} className="flex-1 bg-slate-100 text-slate-700 font-extrabold py-4 rounded-2xl hover:bg-slate-200 transition-colors uppercase tracking-wider text-sm">Cancel</button>
-                <button onClick={processSubmission} className="flex-1 bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-extrabold py-4 rounded-2xl shadow-[0_10px_20px_rgba(79,70,229,0.3)] hover:-translate-y-0.5 transition-all uppercase tracking-wider text-sm">Final Submit</button>
+                <button disabled={saving} onClick={processSubmission} className="flex-1 bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-extrabold py-4 rounded-2xl shadow-[0_10px_20px_rgba(79,70,229,0.3)] hover:-translate-y-0.5 transition-all uppercase tracking-wider text-sm">{saving ? 'Saving…' : 'Final submit'}</button>
               </div>
             </div>
           </div>
@@ -961,4 +834,20 @@ function TestEnvironment({ test, onFinish, onCancel, currentUser }) {
       )}
     </div>
   );
+}
+
+function AttemptHistory({ attempts }) {
+  const [search, setSearch] = useState('');
+  const [selected, setSelected] = useState(null);
+  const filtered = attempts.filter(a => `${a.testName} ${a.studentName}`.toLowerCase().includes(search.toLowerCase()));
+  const exportCSV = () => {
+    const rows = [['Test','Student','Date','Score','Correct','Incorrect','Skipped','Seconds'], ...filtered.map(a => [a.testName,a.studentName,new Date(a.submittedAt).toISOString(),a.totalScore,a.correct,a.incorrect,a.unattempted,a.elapsedSeconds || ''])];
+    const csv = rows.map(row => row.map(v => '"'+String(v ?? '').replace(/^[=+@-]/,"'").replaceAll('"','""')+'"').join(',')).join('\r\n');
+    const url=URL.createObjectURL(new Blob([csv],{type:'text/csv'})); const link=document.createElement('a'); link.href=url; link.download='attempt-history.csv'; link.click(); URL.revokeObjectURL(url);
+  };
+  return <section className="history surface"><div className="section-heading"><div><p className="eyebrow">YOUR PROGRESS, PRESERVED</p><h2>Attempt library</h2></div><button onClick={exportCSV} disabled={!filtered.length}>Export CSV</button></div>
+    <input aria-label="Search attempts" placeholder="Search tests or students…" value={search} onChange={e=>setSearch(e.target.value)}/>
+    {!filtered.length ? <p className="empty-state">Completed tests will appear here with scores and answer-by-answer review.</p> : <div className="table-scroll"><table><thead><tr><th>Assessment</th><th>Date</th><th>Score</th><th>Accuracy</th><th></th></tr></thead><tbody>{filtered.map(a=><tr key={a.id}><td><strong>{a.testName}</strong><small>{a.studentName}</small></td><td>{new Date(a.submittedAt).toLocaleString()}</td><td>{a.totalScore} / {a.totalQs*4}</td><td>{a.correct+a.incorrect ? Math.round(a.correct/(a.correct+a.incorrect)*100) : 0}%</td><td><button onClick={()=>setSelected(a)}>Review</button></td></tr>)}</tbody></table></div>}
+    {selected && <div className="review-overlay" role="dialog" aria-modal="true" aria-label="Attempt review"><div className="surface review-panel"><div className="section-heading"><h2>{selected.testName}</h2><button autoFocus onClick={()=>setSelected(null)}>Close</button></div><p>{selected.correct} correct · {selected.incorrect} incorrect · {selected.unattempted} skipped · {selected.elapsedSeconds ? Math.round(selected.elapsedSeconds/60)+' minutes' : 'Time not recorded'}</p><p>Tab switches: {selected.focusExits ?? 'Not recorded'}</p><div className="answer-review">{Array.from({length:selected.totalQs},(_,i)=>{const q=i+1, answer=selected.responses?.[q], key=selected.answerKey?.[q]; return <div key={q} className={key ? answer===key ? 'correct' : answer ? 'incorrect' : '' : ''}><strong>Q{q}</strong><span>Your answer: {answer || 'Skipped'}</span><span>Correct: {key || 'Not recorded for this older attempt'}</span></div>;})}</div></div></div>}
+  </section>;
 }
