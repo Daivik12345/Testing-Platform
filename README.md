@@ -27,3 +27,7 @@ Drafts are local to one browser, not synced across devices. Fullscreen and tab-s
 ## Checks
 
 `npm run build`, `npm run lint`, `npm test`.
+
+## Session behavior
+
+The existing demo login now remembers the selected user on this device for seven days. Passwords are never stored in local storage. Explicit logout clears the remembered session. Blocked storage falls back to a tab-only session and shows a message. Refresh restores the dashboard; re-enter a test to resume its saved draft and original deadline. This does not change the demo authentication/security limitations above.

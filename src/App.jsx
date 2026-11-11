@@ -1,3 +1,4 @@
+import { readSession, saveSession, clearSession } from './session.js';
 import { scoreAttempt } from './scoring.js';
 import React, { useState, useEffect, useRef, lazy, Suspense } from 'react';
 import { initializeApp } from 'firebase/app';
@@ -22,11 +23,9 @@ import {
   PlusCircle,
   Activity,
   BookOpen,
-  XCircle,
   Clock,
   Trash2,
   ChevronRight,
-  Sparkles,
   LayoutDashboard,
   Target
 } from 'lucide-react';
@@ -65,8 +64,10 @@ function withTimeout(promise, ms) {
 export default function App() {
   const [firebaseUser, setFirebaseUser] = useState(null);
   const [error, setError] = useState(startupError || '');
-  const [currentUser, setCurrentUser] = useState(null);
-  const [view, setView] = useState('login');
+  const [currentUser, setCurrentUser] = useState(() => {
+    try { return readSession(window.localStorage); } catch { return null; }
+  });
+  const [view, setView] = useState(() => currentUser ? (currentUser.role === 'admin' ? 'admin-dash' : 'student-dash') : 'login');
 
   const [tests, setTests] = useState([]);
   const [attempts, setAttempts] = useState([]);
@@ -115,11 +116,14 @@ export default function App() {
   }, [firebaseUser]);
 
   const handleLogin = (role, name) => {
-    setCurrentUser({ role, name });
+    const user = { role, name };
+    try { if (!saveSession(window.localStorage, user)) setError('Browser storage is unavailable. You can use the app, but sign-in will not survive a refresh.'); } catch { setError('Enable browser storage to keep your session after refresh.'); }
+    setCurrentUser(user);
     setView(role === 'admin' ? 'admin-dash' : 'student-dash');
   };
 
   const handleLogout = () => {
+    try { clearSession(window.localStorage); } catch { /* Storage unavailable. */ }
     setCurrentUser(null);
     setView('login');
     setActiveTest(null);
@@ -182,65 +186,44 @@ function LoginScreen({ onLogin }) {
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    if (username === 'Daivik' && password === 'Daivik@2005') {
+    if (username.trim().toLowerCase() === 'daivik' && password === 'Daivik@2005') {
       onLogin('admin', 'Daivik');
-    } else if (username === 'Soumya Sharma' && password === 'neet2027') {
+    } else if (username.trim().toLowerCase() === 'soumya sharma' && password === 'neet2027') {
       onLogin('student', 'Soumya Sharma');
     } else {
       setError('Invalid credentials. Access denied.');
     }
   };
 
+  const [showPassword, setShowPassword] = useState(false);
   return (
-    <div className="flex min-h-screen items-center justify-center bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-indigo-900 via-slate-900 to-black p-4 relative overflow-hidden">
-      {/* Decorative blurred orbs */}
-      <div className="absolute top-[-10%] left-[-10%] w-[30rem] h-[30rem] bg-purple-600/20 rounded-full blur-[120px] pointer-events-none"></div>
-      <div className="absolute bottom-[-10%] right-[-10%] w-[30rem] h-[30rem] bg-blue-600/20 rounded-full blur-[120px] pointer-events-none"></div>
-
-      <div className="w-full max-w-md rounded-[2.5rem] bg-white/10 backdrop-blur-2xl border border-white/20 p-10 shadow-[0_8px_32px_0_rgba(0,0,0,0.37)] z-10">
-        <div className="mb-10 text-center">
-          <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-gradient-to-tr from-blue-500 to-indigo-600 mb-6 shadow-[0_0_30px_rgba(99,102,241,0.5)]">
-            <Sparkles className="text-white w-10 h-10" />
+    <div className="login-page">
+      <header className="login-nav"><a className="focus-wordmark" href="/" aria-label="Focus home"><span className="focus-symbol">f.</span>focus<span className="wordmark-divider"/>NEET Practice</a><span className="login-nav-note">A space for your next milestone.</span></header>
+      <main className="login-layout">
+        <section className="login-story">
+          <p className="login-kicker"><span/> YOUR DAILY PRACTICE, REIMAGINED</p>
+          <h1>A clear mind.<br/>A stronger <span>tomorrow.</span></h1>
+          <p className="login-description">Make every practice count. A quiet workspace for timed tests, thoughtful review, and progress you can see.</p>
+          <div className="practice-preview" aria-label="Practice workflow illustration">
+            <div className="preview-heading"><span className="preview-icon"><BookOpen size={20}/></span><div><strong>Your next step</strong><p>One focused session at a time</p></div><span className="preview-pill">NEET 2027</span></div>
+            <div className="preview-steps"><div><span>01</span><strong>Practice</strong><p>Find your rhythm</p></div><div><span>02</span><strong>Review</strong><p>Understand each answer</p></div><div><span>03</span><strong>Improve</strong><p>Build on your progress</p></div></div>
           </div>
-          <h1 className="text-3xl font-extrabold text-white tracking-tight mb-2">NEET CBT Portal</h1>
-          <p className="text-sm text-indigo-200/80 font-medium tracking-wide uppercase">A little focus. A lot of progress.</p>
-        </div>
-        <form onSubmit={handleSubmit} className="space-y-6">
-          <div className="space-y-2">
-            <label className="block text-sm font-semibold text-white/90 ml-1">Username</label>
-            <input
-              type="text"
-              className="block w-full rounded-2xl border border-white/10 bg-white/5 px-5 py-4 text-white placeholder-white/30 shadow-inner focus:border-indigo-400 focus:bg-white/10 focus:outline-none focus:ring-2 focus:ring-indigo-400/50 transition-all duration-300"
-              value={username}
-              placeholder="Candidate or Admin"
-              onChange={(e) => setUsername(e.target.value)}
-              required
-            />
-          </div>
-          <div className="space-y-2">
-            <label className="block text-sm font-semibold text-white/90 ml-1">Password</label>
-            <input
-              type="password"
-              className="block w-full rounded-2xl border border-white/10 bg-white/5 px-5 py-4 text-white placeholder-white/30 shadow-inner focus:border-indigo-400 focus:bg-white/10 focus:outline-none focus:ring-2 focus:ring-indigo-400/50 transition-all duration-300"
-              value={password}
-              placeholder="••••••••"
-              onChange={(e) => setPassword(e.target.value)}
-              required
-            />
-          </div>
-          {error && (
-            <div className="animate-in fade-in slide-in-from-top-2 text-sm font-medium text-red-200 bg-red-900/40 border border-red-500/30 p-4 rounded-2xl backdrop-blur-md flex items-center gap-2">
-              <XCircle size={18} className="text-red-400"/> {error}
-            </div>
-          )}
-          <button
-            type="submit"
-            className="w-full rounded-2xl bg-gradient-to-r from-blue-500 to-indigo-600 px-4 py-4 font-bold text-white shadow-[0_0_20px_rgba(99,102,241,0.4)] hover:shadow-[0_0_35px_rgba(99,102,241,0.6)] hover:-translate-y-1 transition-all duration-300 focus:outline-none flex justify-center items-center gap-2 text-lg"
-          >
-            Enter Portal <ChevronRight size={20} />
-          </button>
-        </form>
-      </div>
+          <div className="login-features"><span><Clock size={16}/> Timed sessions</span><span><BookOpen size={16}/> Saved attempts</span><span><Activity size={16}/> Clear insights</span></div>
+        </section>
+        <section className="login-card" aria-labelledby="login-heading">
+          <div className="login-card-icon"><Target size={25}/></div>
+          <p className="login-card-eyebrow">WELCOME BACK</p><h2 id="login-heading">Pick up where you left off.</h2><p className="login-card-description">Sign in to your practice workspace.</p>
+          <form onSubmit={handleSubmit} className="login-form">
+            <label htmlFor="username">Username</label><input id="username" name="username" autoComplete="username" autoCapitalize="none" spellCheck={false} value={username} onChange={e=>setUsername(e.target.value)} placeholder="Your username" required/>
+            <label htmlFor="password">Password</label><div className="password-field"><input id="password" name="password" autoComplete="current-password" type={showPassword ? 'text' : 'password'} value={password} onChange={e=>setPassword(e.target.value)} placeholder="Enter your password" required/><button type="button" onClick={()=>setShowPassword(v=>!v)} aria-label={showPassword ? 'Hide password' : 'Show password'}>{showPassword ? 'Hide' : 'Show'}</button></div>
+            {error && <p role="alert" className="login-error">{error}</p>}
+            <button type="submit" className="login-submit">Continue <ChevronRight size={18}/></button>
+            <p className="session-note">Stay signed in on this device for 7 days.<br/>Use Log out when you’re on a shared computer.</p>
+          </form>
+          <div className="login-card-footer"><span className="status-dot"/> Your next session starts here.</div>
+        </section>
+      </main>
+      <footer className="login-footer"><span>Small steps. Lasting progress.</span><span>Focus / Practice workspace · v2</span></footer>
     </div>
   );
 }
