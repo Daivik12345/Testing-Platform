@@ -48,3 +48,9 @@ Keyboard shortcuts are inactive while using form controls or submission confirma
 - Firebase 13.2.0 includes Crashlytics, which brings deprecated OpenTelemetry trace packages. They are not imported by this application. These upstream install deprecation warnings remain until Firebase updates its dependency tree; replacing them with API-incompatible packages would not be a safe fix.
 
 Validation for this update: production build, lint, 11 unit tests, and npm audit (0 known vulnerabilities at preparation time). Firebase permissions and live fullscreen/PDF behavior are not covered by these checks.
+
+## Student workspace redesign
+
+A compact sidebar workspace replaces the previous student tabs and oversized duplicate empty states. Overview shows genuine attempt counts, aggregate attempted-answer accuracy, Monday–Sunday activity and incorrect answers awaiting review. Weekly goals and reviewed flags are stored on this device; submitted attempts remain in Firestore. Revision entries refer to the original paper's question numbers; no question content or explanation is invented. New attempts with saved answer keys support revision; older attempts may not.
+
+Research inputs: Testbook's test series and review features (https://testbook.com/free-live-tests-and-quizzes) and Embibe's diagnostic test analysis (https://www.embibe.com/in-en/best-education-content/tests-that-not-just-evaluate-but-also-diagnose/). This update implements a practical subset, not feature parity with those platforms. AI tutoring, content libraries, proctoring, secure account roles and cohort rankings are not implemented.

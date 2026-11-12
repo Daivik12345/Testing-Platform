@@ -460,50 +460,29 @@ function ManageTests({ tests, attempts }) {
 
 // --- STUDENT DASHBOARD ---
 function StudentDashboard({ tests, attempts, currentUser, onLogout, onStartTest }) {
-  const [activeTab, setActiveTab] = useState('tests');
-
-  return (
-    <div className="flex h-screen flex-col bg-slate-50/50">
-      <header className="flex items-center justify-between bg-white/80 backdrop-blur-xl px-8 py-5 shadow-sm border-b border-slate-200/60 sticky top-0 z-20">
-        <h1 className="text-2xl font-extrabold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent flex items-center gap-3">
-          <div className="p-2 bg-indigo-50 rounded-xl shadow-inner"><Activity className="text-indigo-600 w-6 h-6" /></div>
-          NEET Portal
-          <span className="text-xs font-bold text-indigo-600 bg-indigo-100 px-3 py-1 rounded-full uppercase tracking-wider ml-2 shadow-sm">Student</span>
-        </h1>
-        <div className="flex items-center gap-6">
-          <div className="flex flex-col items-end">
-            <span className="text-sm font-extrabold text-slate-800">{currentUser.name}</span>
-            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Aspirant 2027</span>
-          </div>
-          <button onClick={onLogout} className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-600 hover:bg-slate-50 hover:text-slate-900 transition-all shadow-sm hover:shadow">
-            <LogOut size={16} /> Logout
-          </button>
-        </div>
-      </header>
-
-      <div className="flex justify-center border-b border-slate-200/60 bg-white/50 backdrop-blur-md sticky top-[81px] z-10 pt-4">
-        <div className="flex gap-8">
-          <button
-            onClick={() => setActiveTab('tests')}
-            className={`px-6 py-4 font-extrabold text-sm border-b-[3px] transition-all ${activeTab === 'tests' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-500 hover:text-slate-800 hover:border-slate-300'}`}
-          >
-            Practice
-          </button>
-          <button
-            onClick={() => setActiveTab('results')}
-            className={`px-6 py-4 font-extrabold text-sm border-b-[3px] transition-all ${activeTab === 'results' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-500 hover:text-slate-800 hover:border-slate-300'}`}
-          >
-            Progress
-          </button>
-        </div>
-      </div>
-
-      <main className="flex-1 overflow-y-auto p-10">
-        {activeTab === 'tests' && <StudentTestList tests={tests} onStartTest={onStartTest} />}
-        {activeTab === 'results' && <><Suspense fallback={<p>Loading analytics…</p>}><StudentAnalytics attempts={attempts} /></Suspense><AttemptHistory attempts={attempts} /></>}
-      </main>
-    </div>
-  );
+  const [tab,setTab]=useState('overview');
+  const prefKey=`focus-preferences:${currentUser.name}`;
+  const [prefs,setPrefs]=useState(()=>{try{return JSON.parse(localStorage.getItem(prefKey))||{goal:3,reviewed:[]}}catch{return {goal:3,reviewed:[]}}});
+  const [notice,setNotice]=useState('');
+  const updatePrefs=next=>{setPrefs(next);try{localStorage.setItem(prefKey,JSON.stringify(next))}catch{setNotice('Preferences could not be saved on this device.')}};
+  const [weekStart]=useState(()=>{const start=new Date();start.setHours(0,0,0,0);start.setDate(start.getDate()-((start.getDay()+6)%7));return start;});
+  const weekCount=attempts.filter(a=>a.submittedAt>=weekStart.getTime()).length;
+  const answered=attempts.reduce((n,a)=>n+a.correct+a.incorrect,0);
+  const accuracy=answered?Math.round(attempts.reduce((n,a)=>n+a.correct,0)/answered*100):null;
+  const mistakes=attempts.flatMap(a=>Object.entries(a.responses||{}).filter(([q,r])=>a.answerKey?.[q]&&r!==a.answerKey[q]).map(([q,r])=>({id:`${a.id}:${q}`,q,response:r,answer:a.answerKey[q],testName:a.testName})));
+  const pending=mistakes.filter(m=>!prefs.reviewed.includes(m.id));
+  return <div className="focus-app"><aside className="focus-sidebar"><a className="focus-wordmark" href="/"><span className="focus-symbol">f.</span>focus</a><p className="sidebar-label">YOUR WORKSPACE</p><nav>{[['overview','Overview',LayoutDashboard],['practice','Practice',BookOpen],['progress','Progress',Activity],['revision','Revision',Target]].map(([id,label,Icon])=><button key={id} aria-current={tab===id?'page':undefined} onClick={()=>setTab(id)}><Icon size={18}/>{label}{id==='revision'&&pending.length>0&&<small>{pending.length}</small>}</button>)}</nav><div className="sidebar-bottom"><span className="avatar">{currentUser.name[0]}</span><div><strong>{currentUser.name}</strong><small>NEET 2027</small></div><button aria-label="Log out" onClick={onLogout}><LogOut size={17}/></button></div></aside>
+    <div className="focus-content"><header className="focus-topbar"><span>{tab[0].toUpperCase()+tab.slice(1)}</span><div className="topbar-actions"><span className="focus-chip">NEET Practice</span><button onClick={onLogout}>Log out</button></div></header><main className="focus-main" key={tab}>
+    {notice&&<p role="alert">{notice}</p>}
+    {tab==='overview'&&<><div className="welcome-row"><div><p className="eyebrow">YOUR NEXT CHAPTER</p><h1>Welcome back, {currentUser.name.split(' ')[0]}.</h1><p>A little practice, a little progress.</p></div><button className="focus-primary" onClick={()=>setTab('practice')}>Find a test <ChevronRight size={16}/></button></div>
+    <div className="focus-metrics">{[['Completed',attempts.length,'tests'],['Accuracy',accuracy===null?'—':accuracy+'%','across attempted answers'],['This week',weekCount,'practice sessions'],['To revisit',pending.length,'incorrect answers']].map(([label,value,detail])=><div className="focus-panel" key={label}><span>{label}</span><strong>{value}</strong><small>{detail}</small></div>)}</div>
+    <div className="overview-grid"><section className="focus-panel"><div className="section-heading"><h2>Keep your momentum</h2><BookOpen size={20}/></div>{tests.length?<><h3>{tests[0].name}</h3><p>{tests[0].totalQuestions} questions · {tests[0].duration} minutes</p><button className="focus-primary" onClick={()=>onStartTest(tests[0])}>Start or resume</button></>:<div className="compact-empty"><BookOpen size={28}/><h3>Your next test will appear here.</h3><p>An administrator can publish a paper from the test library.</p></div>}</section>
+    <section className="focus-panel"><div className="section-heading"><h2>Weekly goal</h2><label><span className="sr-only">Weekly session goal</span><select value={prefs.goal} onChange={e=>updatePrefs({...prefs,goal:Number(e.target.value)})}>{[1,2,3,4,5,6,7].map(n=><option key={n} value={n}>{n} / week</option>)}</select></label></div><div className="goal-value">{weekCount}<span> / {prefs.goal} sessions</span></div><progress value={Math.min(weekCount,prefs.goal)} max={prefs.goal}/><p>{weekCount>=prefs.goal?'Goal reached. Keep building your rhythm.':`${prefs.goal-weekCount} more to reach your goal.`}</p><small>Monday–Sunday · goal saved on this device</small></section></div>
+    <section className="focus-panel"><div className="section-heading"><h2>Recent activity</h2><button className="focus-link" onClick={()=>setTab('progress')}>View progress →</button></div>{attempts.length?attempts.slice(0,3).map(a=><div className="activity-row" key={a.id}><span className="preview-icon"><BookOpen size={18}/></span><div><strong>{a.testName}</strong><small>{new Date(a.submittedAt).toLocaleDateString()}</small></div><strong>{a.totalScore}<small> / {a.totalQs*4}</small></strong></div>):<p className="compact-copy">Finish a test to start your progress timeline.</p>}</section></>}
+    {tab==='practice'&&<StudentTestList tests={tests} onStartTest={onStartTest}/>}
+    {tab==='progress'&&(attempts.length?<><Suspense fallback={<p>Loading insights…</p>}><StudentAnalytics attempts={attempts}/></Suspense><AttemptHistory attempts={attempts}/></>:<section className="focus-panel compact-empty"><Activity size={32}/><h1>Your progress starts with one test.</h1><p>Scores and answer reviews will appear here after submission.</p><button className="focus-primary" onClick={()=>setTab('practice')}>Explore practice</button></section>)}
+    {tab==='revision'&&<><div className="welcome-row"><div><h1>Make mistakes useful.</h1><p>Revisit incorrect answers, then mark them reviewed.</p></div><span className="focus-chip">{pending.length} remaining</span></div>{mistakes.length?<div className="revision-grid">{mistakes.map(m=><article className="focus-panel" key={m.id}><small>{m.testName}</small><h2>Question {m.q}</h2><div className="revision-answers"><span>Your answer <b>{m.response}</b></span><span>Correct <b>{m.answer}</b></span></div><button className="focus-secondary" aria-pressed={prefs.reviewed.includes(m.id)} onClick={()=>updatePrefs({...prefs,reviewed:prefs.reviewed.includes(m.id)?prefs.reviewed.filter(id=>id!==m.id):[...prefs.reviewed,m.id]})}>{prefs.reviewed.includes(m.id)?'Reviewed ✓':'Mark reviewed'}</button></article>)}</div>:<section className="focus-panel compact-empty"><Target size={30}/><h2>Nothing to revisit yet.</h2><p>Incorrect answers from new attempts will appear here.</p></section>}</>}
+    </main></div></div>;
 }
 
 function StudentTestList({ tests, onStartTest }) {
