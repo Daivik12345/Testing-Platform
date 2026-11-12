@@ -1,5 +1,5 @@
 import React, {useMemo} from 'react';
-import {Activity, BookOpen, Target, CheckCircle, XCircle, MinusCircle} from 'lucide-react';
+import {Activity, BookOpen, Target} from 'lucide-react';
 import {
   BarChart,
   Bar,
@@ -27,7 +27,7 @@ export function AdminAnalytics({ attempts }) {
   return (
     <div className="space-y-8">
       <div className="flex items-center justify-between">
-        <h2 className="text-3xl font-extrabold text-slate-800 tracking-tight">Performance Overview</h2>
+        <h2 className="text-3xl font-extrabold text-slate-800 tracking-tight">Progress overview</h2>
         <span className="bg-indigo-100 text-indigo-700 font-bold px-4 py-1 rounded-full text-sm">Target: NEET 2027</span>
       </div>
 
@@ -51,7 +51,7 @@ export function AdminAnalytics({ attempts }) {
 
       {attempts.length > 0 ? (
         <div className="bg-white p-8 rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-slate-100">
-          <h3 className="text-xl font-bold text-slate-800 mb-8">Score Progression Timeline</h3>
+          <h3 className="text-xl font-bold text-slate-800 mb-8">Score trend</h3>
           <div className="h-96 w-full">
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={chartData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
@@ -64,8 +64,8 @@ export function AdminAnalytics({ attempts }) {
                   cursor={{stroke: '#e2e8f0', strokeWidth: 2, strokeDasharray: '5 5'}}
                 />
                 <Legend wrapperStyle={{ paddingTop: '20px', fontWeight: 'bold', color: '#475569' }} />
-                <Line yAxisId="left" type="monotone" dataKey="score" stroke="#4f46e5" strokeWidth={4} dot={{ r: 6, strokeWidth: 3, fill: '#fff' }} activeDot={{ r: 8 }} name="Total Score" />
-                <Line yAxisId="right" type="monotone" dataKey="accuracy" stroke="#10b981" strokeWidth={4} dot={{ r: 6, strokeWidth: 3, fill: '#fff' }} activeDot={{ r: 8 }} name="Accuracy (%)" />
+                <Line yAxisId="left" type="monotone" dataKey="score" stroke="#426759" strokeWidth={4} dot={{ r: 6, strokeWidth: 3, fill: '#fff' }} activeDot={{ r: 8 }} name="Total Score" />
+                <Line yAxisId="right" type="monotone" dataKey="accuracy" stroke="#8aada0" strokeWidth={4} dot={{ r: 6, strokeWidth: 3, fill: '#fff' }} activeDot={{ r: 8 }} name="Accuracy (%)" />
               </LineChart>
             </ResponsiveContainer>
           </div>
@@ -103,7 +103,7 @@ export function StudentAnalytics({ attempts }) {
           <div className="bg-white p-8 rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-slate-100">
              <div className="flex items-center gap-3 mb-8">
                <div className="p-3 bg-indigo-50 rounded-xl text-indigo-600"><Activity size={24} /></div>
-               <h3 className="text-2xl font-extrabold text-slate-800">Score Tracker</h3>
+               <h3 className="text-2xl font-extrabold text-slate-800">Scores</h3>
              </div>
              <div className="h-80 w-full">
                <ResponsiveContainer width="100%" height="100%">
@@ -119,8 +119,8 @@ export function StudentAnalytics({ attempts }) {
                    <Bar dataKey="score" fill="url(#colorScore)" name="Marks Obtained" radius={[8,8,0,0]} barSize={40} />
                    <defs>
                      <linearGradient id="colorScore" x1="0" y1="0" x2="0" y2="1">
-                       <stop offset="0%" stopColor="#6366f1" stopOpacity={1}/>
-                       <stop offset="100%" stopColor="#4f46e5" stopOpacity={0.8}/>
+                       <stop offset="0%" stopColor="#7c9b89" stopOpacity={1}/>
+                       <stop offset="100%" stopColor="#426759" stopOpacity={0.8}/>
                      </linearGradient>
                    </defs>
                  </BarChart>
@@ -128,39 +128,6 @@ export function StudentAnalytics({ attempts }) {
              </div>
           </div>
 
-          <div className="space-y-6">
-            <h3 className="text-2xl font-extrabold text-slate-800 px-2">Detailed History</h3>
-            {attempts.map((a) => (
-              <div key={a.id} className="bg-white p-8 rounded-3xl border border-slate-100 shadow-[0_4px_20px_rgb(0,0,0,0.03)] grid grid-cols-1 md:grid-cols-5 gap-6 items-center hover:border-indigo-100 transition-colors group">
-                <div className="md:col-span-2">
-                  <div className="text-xs font-black text-slate-400 uppercase tracking-widest mb-1">{new Date(a.submittedAt).toLocaleDateString(undefined, { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' })}</div>
-                  <h4 className="font-extrabold text-xl text-slate-800 group-hover:text-indigo-600 transition-colors">{a.testName}</h4>
-                </div>
-
-                <div className="flex items-center gap-3 justify-start md:justify-center col-span-2">
-                   <div className="bg-emerald-50 border border-emerald-100 px-4 py-2 rounded-xl flex items-center gap-2 shadow-sm">
-                     <CheckCircle size={18} className="text-emerald-500"/>
-                     <span className="font-extrabold text-emerald-700">{a.correct}</span>
-                   </div>
-                   <div className="bg-rose-50 border border-rose-100 px-4 py-2 rounded-xl flex items-center gap-2 shadow-sm">
-                     <XCircle size={18} className="text-rose-500"/>
-                     <span className="font-extrabold text-rose-700">{a.incorrect}</span>
-                   </div>
-                   <div className="bg-slate-100 border border-slate-200 px-4 py-2 rounded-xl flex items-center gap-2 shadow-sm">
-                     <MinusCircle size={18} className="text-slate-500"/>
-                     <span className="font-extrabold text-slate-700">{a.unattempted}</span>
-                   </div>
-                </div>
-
-                <div className="text-left md:text-right border-t md:border-t-0 md:border-l border-slate-100 pt-4 md:pt-0 md:pl-6">
-                  <span className="block text-4xl font-black text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-indigo-600">
-                    {a.totalScore}
-                  </span>
-                  <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Out of {a.totalQs * 4}</span>
-                </div>
-              </div>
-            ))}
-          </div>
         </>
       )}
     </div>

@@ -94,3 +94,49 @@ html,body,#root { width:100%; max-width:none; margin:0; border:0; }
 .login-error { color:#a53c35; background:#fff1ef; padding:10px; border-radius:8px; font-size:12px; margin-top:12px; }
 .login-footer { display:flex; justify-content:space-between; font-size:10px; color:#a1a8ae; padding:20px 0; border-top:1px solid #e5e7eb; }
 @media(max-width:760px) { .login-page { padding:0 24px; } .login-layout { grid-template-columns:1fr; gap:32px; padding:38px 0; max-width:460px; } .login-nav-note,.practice-preview,.login-features { display:none; } .login-story h1 { font-size:38px; } .login-kicker { margin-bottom:16px; } .login-description { margin:14px 0 0; font-size:13px; } .login-card { max-width:none; padding:28px; } .login-footer { gap:20px; font-size:9px; } }
+
+/* Shared Focus surfaces across administration, practice, results and exams. */
+.workspace-theme { --focus-ink:#22332d; --focus-accent:#426759; --focus-soft:#edf3ef; background:#f7f8fa; color:#25312b; }
+.workspace-theme h1,.workspace-theme h2,.workspace-theme h3 { font-weight:550; letter-spacing:-.04em; }
+.workspace-theme h2 { font-size:26px; }
+.workspace-theme .font-black,.workspace-theme .font-extrabold,.workspace-theme .font-bold { font-weight:550; }
+.workspace-theme .uppercase { text-transform:none; }
+.workspace-theme .tracking-widest,.workspace-theme .tracking-wider { letter-spacing:0; }
+.workspace-theme [class*="shadow-"] { box-shadow:none; }
+.workspace-theme [class*="rounded-3xl"] { border-radius:18px; }
+.workspace-theme [class*="rounded-2xl"] { border-radius:12px; }
+.workspace-theme [class*="bg-gradient-"] { background-image:none; background-color:#294a3e; }
+.workspace-theme [class*="bg-clip-text"] { background:none; color:#294a3e; }
+.workspace-theme [class*="bg-indigo-50"],.workspace-theme [class*="bg-indigo-100"],.workspace-theme [class*="bg-blue-50"] { background-color:#edf3ef; }
+.workspace-theme [class*="text-indigo-"],.workspace-theme [class*="text-blue-"] { color:#426759; }
+.workspace-theme [class*="border-indigo-"] { border-color:#d9e5dd; }
+.workspace-theme button[class*="bg-indigo-"],.workspace-theme button[class*="bg-blue-"],.workspace-theme button[class*="bg-emerald-"],.workspace-theme button[class*="bg-slate-800"],.workspace-theme button[class*="bg-slate-900"] { background:#294a3e; color:#fff; }
+.workspace-theme button[class*="bg-violet-"] { background:#eeeaf4; color:#705b88; }
+.workspace-theme button:hover { transform:none; filter:brightness(.98); }
+.workspace-theme header { min-height:76px; background:#fff; border-bottom:1px solid #e5e8eb; }
+.workspace-theme aside { background:#fff; border-right:1px solid #e5e8eb; width:240px; }
+.workspace-theme aside button { font-size:13px; padding:14px 16px; }
+.workspace-theme main { background:#f7f8fa; }
+.workspace-theme main>.max-w-6xl { max-width:1240px; }
+.workspace-theme input:not([type=radio]),.workspace-theme select,.workspace-theme textarea { border-radius:9px; border-color:#dfe4e7; font-size:14px; background:#fbfcfc; }
+.workspace-theme .history button,.workspace-theme .exam-toolbar button { background:#294a3e; }
+.workspace-theme .exam-toolbar { background:#f7f8fa; }
+.workspace-theme .exam-shell>header { min-height:70px; }
+.workspace-theme .exam-shell>header .text-emerald-400 { color:#426759; }
+.workspace-theme .exam-shell .bg-emerald-500 { background:#628974; }
+.workspace-theme .exam-shell .bg-rose-500 { background:#bd7770; }
+.workspace-theme .exam-shell .bg-violet-500 { background:#8e7da5; }
+.workspace-theme .exam-shell .ring-4 { --tw-ring-color:#42675940; }
+.workspace-theme .exam-shell .p-6 { padding:18px; }
+.workspace-theme .exam-shell button { font-size:12px; }
+.filter-bar { display:flex; gap:12px; margin-bottom:24px; }.filter-bar input { flex:1; min-width:0; }.filter-bar input,.filter-bar select { border:1px solid #dfe4e7; padding:12px 14px; border-radius:9px; background:white; font-size:13px; }
+.segmented { display:flex; flex-wrap:wrap; gap:4px; padding:4px; background:#f0f3f1; border-radius:9px; margin:16px 0; }
+.segmented button { flex:1; padding:7px 10px!important; border-radius:6px!important; background:transparent!important; color:#738078!important; font-size:11px!important; text-transform:capitalize; }
+.segmented button[aria-pressed=true] { background:#fff!important; color:#294a3e!important; box-shadow:0 1px 3px #0001; }
+.question-navigation { display:flex; justify-content:space-between; align-items:center; padding:10px 16px; font-size:12px; color:#7c8881; border-top:1px solid #edf0f2; }
+.question-navigation button { padding:8px; color:#426759; }.question-navigation button:disabled { opacity:.35; cursor:default; }
+.exam-progress { height:3px; background:#e5ebe7; flex-shrink:0; }.exam-progress span { display:block; height:100%; background:#628974; transition:width .2s; }
+.inline-help,.inline-note { font-size:12px; color:#77847d; padding:10px 16px; background:#f3f6f4; }.inline-note { margin-bottom:12px; border-radius:8px; }
+.paper-link { font-size:11px; color:#426759; text-decoration:underline; }
+.login-features,.login-card-description { display:none; }.login-layout { padding:48px 0; }.login-card { padding:32px; }.login-card-icon { margin-bottom:20px; }
+@media(max-width:640px) { .workspace-theme aside { width:100%; }.filter-bar { flex-wrap:wrap; }.workspace-theme h2 { font-size:22px; }.workspace-theme header h1>span { display:none; } }

@@ -1,0 +1,6 @@
+{
+  "framework": "vite",
+  "installCommand": "env -u npm_config_cache_dir -u npm_config_cache-dir npm ci",
+  "buildCommand": "env -u npm_config_cache_dir -u npm_config_cache-dir npm run build",
+  "outputDirectory": "dist"
+}
