@@ -54,3 +54,26 @@ Validation for this update: production build, lint, 11 unit tests, and npm audit
 A compact sidebar workspace replaces the previous student tabs and oversized duplicate empty states. Overview shows genuine attempt counts, aggregate attempted-answer accuracy, Monday–Sunday activity and incorrect answers awaiting review. Weekly goals and reviewed flags are stored on this device; submitted attempts remain in Firestore. Revision entries refer to the original paper's question numbers; no question content or explanation is invented. New attempts with saved answer keys support revision; older attempts may not.
 
 Research inputs: Testbook's test series and review features (https://testbook.com/free-live-tests-and-quizzes) and Embibe's diagnostic test analysis (https://www.embibe.com/in-en/best-education-content/tests-that-not-just-evaluate-but-also-diagnose/). This update implements a practical subset, not feature parity with those platforms. AI tutoring, content libraries, proctoring, secure account roles and cohort rankings are not implemented.
+
+## Upload and publish a test
+
+1. Open **Create a test**. Enter the title, duration and question count.
+2. Select **Upload PDF** and choose the question paper (valid PDF, up to 20 MB), or choose **Use a link**.
+3. Under **Answer key**, import the JSON file. The key must contain every question, e.g. `{"1":"A","2":"C"}`. PDF answer keys are reference documents, not machine imports.
+4. Click **Publish test**. PDF transfer shows progress. Publishing reports success only after Firestore acknowledges the write.
+
+If a request times out, keep the form open and retry. Retries reuse the same Firestore document ID, preventing duplicate tests. A timed-out Firestore write can still complete later; timeout does not cancel a queued write. Uploaded PDFs are reused on retry. Leaving the form cancels active PDF uploads.
+
+### Firebase setup
+
+Enable Cloud Storage for the same Firebase project and set `VITE_FIREBASE_STORAGE_BUCKET` in Vercel, then redeploy. Storage may require a billing-enabled project; check the Firebase console. The app writes question PDFs to `test-papers/{testId}/paper.pdf`. Firestore writes tests to `artifacts/neet-cbt-portal/public/data/tests/{testId}`. Rules must permit the intended account to write to these paths and candidates to read question papers. Do not solve permissions by opening all writes to the public.
+
+The existing username/password screen is a client-side role selector backed by anonymous Firebase authentication, **not trusted server-side admin authorization**. Configure a real Firebase admin identity/claim before using admin-only production rules. This upload change does not grant users an admin claim or change your deployed rules. Permission failures now appear inline instead of leaving the publish button indefinitely busy.
+
+## Individual questions from PDF
+
+Choose **Individual questions → Extract questions & options**, then review and edit the detected text and A–D options. Set the question count to match the paper and confirm the review checkbox before publishing. The candidate sees separate selectable options plus an original PDF region to preserve diagrams and mathematical notation. New structured tests store extracted text with the test. Existing tests remain in PDF + OMR mode; recreate them to import structured content.
+
+The parser supports numbered, single-column text PDFs with A–D or (A)–(D) option labels. It does not perform OCR. Scans, multi-column papers, rotated pages, image-only options, and unusual numbering require PDF + OMR mode or a reformatted text PDF. Always compare the import to the source. Link imports and source-image rendering require a PDF URL that permits cross-origin access. Direct PDF upload is preferred. Source regions are rendered with PDF.js in the browser; use Open paper if the original cannot render.
+
+The duration field now keeps a text editing buffer, allowing clearing and replacing minutes without spinner/wheel changes. Range validation happens on publish. The Aurora theme applies dark surfaces and muted violet/blue accents across the login, authoring, dashboard, analytics, and exam screens, with reduced-motion support.

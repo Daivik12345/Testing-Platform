@@ -1,4 +1,7 @@
-import { hasCompleteAnswerKey, matchesQuestionFilter } from './practice.js';
+import QuestionCard from './QuestionCard.jsx';
+import CreateTestForm from './CreateTestForm.jsx';
+import { getStorage } from 'firebase/storage';
+import { matchesQuestionFilter } from './practice.js';
 import { readSession, saveSession, clearSession } from './session.js';
 import { scoreAttempt } from './scoring.js';
 import React, { useState, useEffect, useRef, lazy, Suspense } from 'react';
@@ -13,7 +16,6 @@ import {
   getFirestore,
   collection,
   onSnapshot,
-  addDoc,
   doc,
   deleteDoc,
   setDoc
@@ -45,13 +47,14 @@ const firebaseConfig = {
   measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID
 };
 
-let auth, db, startupError;
+let auth, db, storage, startupError;
 try {
   const missing = ['apiKey', 'authDomain', 'projectId', 'appId'].filter(key => !firebaseConfig[key]);
   if (missing.length) throw new Error(`Missing Firebase settings: ${missing.join(', ')}. Update Vercel environment variables and redeploy.`);
   const app = initializeApp(firebaseConfig);
   auth = getAuth(app);
   db = getFirestore(app);
+  storage = getStorage(app);
 } catch (error) { startupError = error.message; }
 const appId = 'neet-cbt-portal';
 function withTimeout(promise, ms) {
@@ -278,134 +281,11 @@ function AdminDashboard({ tests, attempts, onLogout }) {
         <main className="flex-1 overflow-y-auto p-10 bg-slate-50/50">
           <div className="max-w-6xl mx-auto">
             {activeTab === 'analytics' && <><Suspense fallback={<p>Loading analytics…</p>}><AdminAnalytics attempts={attempts} /></Suspense><AttemptHistory attempts={attempts} /></>}
-            {activeTab === 'create-test' && <CreateTestForm onSuccess={() => setActiveTab('manage-tests')} />}
+            {activeTab === 'create-test' && <CreateTestForm db={db} storage={storage} appId={appId} onSuccess={() => setActiveTab('manage-tests')} />}
             {activeTab === 'manage-tests' && <ManageTests tests={tests} attempts={attempts} />}
           </div>
         </main>
       </div>
-    </div>
-  );
-}
-
-function CreateTestForm({ onSuccess }) {
-  const [name, setName] = useState('');
-  const [duration, setDuration] = useState(200);
-  const [pdfUrl, setPdfUrl] = useState('');
-  const [totalQs, setTotalQs] = useState(200);
-  const [answerKey, setAnswerKey] = useState(() => Object.fromEntries(Array.from({length:200},(_,i)=>[i+1,''])));
-  const [loading, setLoading] = useState(false);
-  const [importMessage, setImportMessage] = useState('');
-
-  const generateEmptyKey = (count) => {
-    const key = {};
-    for (let i = 1; i <= count; i++) key[i] = '';
-    return key;
-  };
-
-  const handleKeyChange = (qNum, val) => {
-    setAnswerKey(prev => ({ ...prev, [qNum]: val }));
-  };
-
-  const handleBulkUpload = (e) => {
-    try {
-      const json = JSON.parse(e.target.value);
-      if (json && !Array.isArray(json) && Object.entries(json).every(([k,v]) => Number.isInteger(Number(k)) && Number(k) >= 1 && Number(k) <= totalQs && ['A','B','C','D'].includes(v))) {
-        setAnswerKey(prev => ({...prev, ...json}));
-        setImportMessage(`Imported ${Object.keys(json).length} answers.`);
-      } else setImportMessage('Use question numbers within this test and answers A, B, C or D.');
-    } catch { setImportMessage('Enter valid JSON, for example {"1":"A","2":"C"}.'); }
-  };
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    if (!name.trim() || !Number.isInteger(Number(totalQs)) || totalQs < 1 || totalQs > 300 || duration < 1 || duration > 360) { alert('Use a title, 1–300 questions, and a duration of 1–360 minutes.'); return; }
-    if (pdfUrl && !/^https:\/\//i.test(pdfUrl)) { alert('Use an HTTPS link for the question paper.'); return; }
-    if (!hasCompleteAnswerKey(totalQs, answerKey)) { alert('Complete the answer key before publishing.'); return; }
-    setLoading(true);
-    try {
-      const testsRef = collection(db, 'artifacts', appId, 'public', 'data', 'tests');
-      await addDoc(testsRef, {
-        name,
-        duration: Number(duration),
-        totalQuestions: Number(totalQs),
-        pdfUrl,
-        answerKey,
-        createdAt: Date.now()
-      });
-      onSuccess();
-    } catch (err) {
-      console.error(err);
-      alert(`Failed to create test: ${err.message}`);
-    }
-    setLoading(false);
-  };
-
-  return (
-    <div className="bg-white p-10 rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-slate-100">
-      <div className="flex items-center gap-4 mb-8">
-        <div className="p-3 bg-indigo-50 text-indigo-600 rounded-2xl"><PlusCircle size={28}/></div>
-        <h2 className="text-2xl font-extrabold text-slate-800">Create a test</h2>
-      </div>
-
-      <form onSubmit={handleSubmit} className="space-y-8">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-          <div className="space-y-2">
-            <label className="block text-sm font-bold text-slate-700 ml-1">Test Title</label>
-            <input type="text" required value={name} onChange={e=>setName(e.target.value)} className="block w-full rounded-2xl border border-slate-200 bg-slate-50 px-5 py-4 font-medium text-slate-800 placeholder-slate-400 focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all" placeholder="e.g. NEET Full Syllabus Mock 1" />
-          </div>
-          <div className="space-y-2">
-            <label className="block text-sm font-bold text-slate-700 ml-1">Duration (Minutes)</label>
-            <input type="number" required value={duration} onChange={e=>setDuration(e.target.value)} className="block w-full rounded-2xl border border-slate-200 bg-slate-50 px-5 py-4 font-medium text-slate-800 placeholder-slate-400 focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all" />
-          </div>
-          <div className="md:col-span-2 space-y-2">
-            <label className="block text-sm font-bold text-slate-700 ml-1">Question Paper PDF URL</label>
-            <input type="url" value={pdfUrl} onChange={e=>setPdfUrl(e.target.value)} className="block w-full rounded-2xl border border-slate-200 bg-slate-50 px-5 py-4 font-medium text-slate-800 placeholder-slate-400 focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all" placeholder="https://example.com/paper.pdf" />
-          </div>
-          <div className="space-y-2">
-            <label className="block text-sm font-bold text-slate-700 ml-1">Total Questions</label>
-            <input type="number" min="1" max="300" required value={totalQs} onChange={e=>{const count=Math.min(300,Math.max(1,Number(e.target.value)||1));setTotalQs(count);setAnswerKey(prev=>Object.fromEntries(Object.keys(generateEmptyKey(count)).map(k=>[k,prev[k] || ''])));}} className="block w-full rounded-2xl border border-slate-200 bg-slate-50 px-5 py-4 font-medium text-slate-800 placeholder-slate-400 focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all" />
-          </div>
-        </div>
-
-        <div className="pt-8 border-t border-slate-100">
-          <div className="mb-6">
-            <h3 className="text-xl font-extrabold text-slate-800 mb-2">Answer key</h3>
-            <p className="text-sm font-medium text-slate-500">Configure manually or paste a JSON object format (e.g. <code>&#123;"1":"A", "2":"C"&#125;</code>)</p>
-          </div>
-          <textarea
-            placeholder='Paste JSON here for bulk import...'
-            className="w-full p-5 border border-slate-200 rounded-2xl mb-6 font-mono text-sm bg-slate-50 focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all"
-            rows={3}
-            onChange={handleBulkUpload}
-          />
-          <p className="inline-note" role="status">{importMessage || `${Object.values(answerKey).filter(Boolean).length} of ${totalQs} answers set`}</p>
-          <div className="h-80 overflow-y-auto p-6 border border-slate-200 rounded-3xl bg-slate-50/50 grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 lg:grid-cols-10 gap-4 custom-scrollbar">
-            {Array.from({length: totalQs}).map((_, i) => {
-              const qNum = i + 1;
-              return (
-                <div key={qNum} className="flex flex-col items-center p-3 bg-white rounded-xl shadow-sm border border-slate-100 hover:border-indigo-200 transition-colors">
-                  <span className="text-xs font-black text-slate-400 mb-2 tracking-widest">Q{qNum}</span>
-                  <select
-                    aria-label={`Correct answer for question ${qNum}`} value={answerKey[qNum] || ''}
-                    onChange={e => handleKeyChange(qNum, e.target.value)}
-                    className="p-2 border border-slate-200 rounded-lg text-sm w-full font-bold text-center text-slate-700 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200 bg-slate-50 cursor-pointer"
-                  >
-                    <option value="">—</option>
-                    <option value="A">A</option>
-                    <option value="B">B</option>
-                    <option value="C">C</option>
-                    <option value="D">D</option>
-                  </select>
-                </div>
-              )
-            })}
-          </div>
-        </div>
-
-        <button disabled={loading} type="submit" className="w-full bg-gradient-to-r from-indigo-500 to-blue-600 text-white font-extrabold text-lg py-5 rounded-2xl shadow-[0_10px_20px_rgba(99,102,241,0.2)] hover:shadow-[0_15px_30px_rgba(99,102,241,0.4)] hover:-translate-y-1 transition-all duration-300 disabled:opacity-50 disabled:hover:translate-y-0">
-          {loading ? 'Publishing Test...' : 'Publish test'}
-        </button>
-      </form>
     </div>
   );
 }
@@ -716,7 +596,7 @@ function TestEnvironment({ test, onFinish, onCancel, currentUser }) {
             <span className="font-black text-indigo-600 bg-indigo-50 px-4 py-1.5 rounded-full text-sm">Question {currentQ}</span>{test.pdfUrl && <a className="paper-link" href={test.pdfUrl} target="_blank" rel="noopener noreferrer">Open paper ↗</a>}
           </div>
           <div className="flex-1 overflow-y-auto bg-slate-100/50 p-4">
-            {test.pdfUrl ? (
+            {test.questions?.[currentQ-1] ? <QuestionCard key={currentQ} question={test.questions[currentQ-1]} url={test.pdfUrl} value={responses[currentQ]} onSelect={handleOptionSelect} disabled={!timeLeft||saving}/> : test.pdfUrl ? (
                <iframe sandbox="allow-scripts allow-same-origin" referrerPolicy="no-referrer" src={`${test.pdfUrl}#toolbar=0&navpanes=0`} className="w-full h-full rounded-2xl bg-white shadow-sm border border-slate-200" title="Question Paper"></iframe>
             ) : (
                <div className="w-full h-full border-2 border-dashed border-slate-300 bg-white flex flex-col items-center justify-center text-slate-500 p-10 text-center rounded-2xl">
